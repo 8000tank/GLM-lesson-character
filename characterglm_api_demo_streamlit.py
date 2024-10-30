@@ -138,7 +138,9 @@ def draw_new_image():
 button_labels = {
     "clear_meta": "清空人设",
     "clear_history": "清空对话历史",
-    "gen_picture": "生成图片"
+    "gen_picture": "生成图片",
+    "start_dialogue": "开始对话",
+    "save_dialogue": "保存对话记录"
 }
 if debug:
     button_labels.update({
@@ -146,6 +148,33 @@ if debug:
         "show_meta": "查看meta",
         "show_history": "查看历史"
     })
+
+
+def load_character_settings():
+    """从markdown文件加载角色设定"""
+    try:
+        with open('character_setting.md', 'r', encoding='utf-8') as f:
+            bot_info = f.read()
+        with open('user_setting.md', 'r', encoding='utf-8') as f:
+            user_info = f.read()
+        return bot_info, user_info
+    except Exception as e:
+        st.error(f"读取角色设定文件失败: {str(e)}")
+        return None, None
+
+
+def save_dialogue_history():
+    """保存对话记录到文件"""
+    try:
+        with open('dialogue_history.txt', 'w', encoding='utf-8') as f:
+            for msg in st.session_state["history"]:
+                if msg["role"] in ["user", "assistant"]:
+                    speaker = "唐僧" if msg["role"] == "user" else "孙悟空"
+                    f.write(f"{speaker}: {msg['content']}\n")
+        st.success("对话记录已保存到 dialogue_history.txt")
+    except Exception as e:
+        st.error(f"保存对话记录失败: {str(e)}")
+
 
 # 在同一行排列按钮
 with st.container():
@@ -188,6 +217,43 @@ with st.container():
             show_history = st.button(button_labels["show_history"], key="show_history")
             if show_history:
                 print(f"history = {st.session_state['history']}")
+
+    with button_key_to_col["start_dialogue"]:
+        start_dialogue = st.button(button_labels["start_dialogue"])
+        if start_dialogue:
+            bot_info, user_info = load_character_settings()
+            if bot_info and user_info:
+                st.session_state["meta"].update({
+                    "bot_name": "孙悟空",
+                    "user_name": "唐僧",
+                    "bot_info": bot_info,
+                    "user_info": user_info
+                })
+                init_session()
+                # 生成10轮对话
+                for _ in range(10):
+                    if len(st.session_state["history"]) == 0:
+                        query = "悟空，我们又要经过一片妖怪出没的森林了，你要谨记佛祖教诲，不可轻易伤人。"
+                    else:
+                        response_stream = get_characterglm_response(
+                            filter_text_msg(st.session_state["history"]),
+                            meta=st.session_state["meta"]
+                        )
+                        query = "".join(response_stream)
+                    st.session_state["history"].append(TextMsg({"role": "user", "content": query}))
+
+                    response_stream = get_characterglm_response(
+                        filter_text_msg(st.session_state["history"]),
+                        meta=st.session_state["meta"]
+                    )
+                    bot_response = "".join(response_stream)
+                    st.session_state["history"].append(TextMsg({"role": "assistant", "content": bot_response}))
+                st.rerun()
+
+    with button_key_to_col["save_dialogue"]:
+        save_dialogue = st.button(button_labels["save_dialogue"])
+        if save_dialogue:
+            save_dialogue_history()
 
 
 # 展示对话历史
