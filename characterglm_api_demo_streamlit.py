@@ -30,6 +30,36 @@ st.set_page_config(page_title="CharacterGLM API Demo", page_icon="🤖", layout=
 debug = os.getenv("DEBUG", "").lower() in ("1", "yes", "y", "true", "t", "on")
 
 
+def init_session():
+    """初始化会话状态"""
+    st.session_state["history"] = []
+    st.session_state["meta"].update({
+        "user_info": st.session_state.get("user_info", ""),
+        "bot_info": st.session_state.get("bot_info", ""),
+        "bot_name": st.session_state.get("bot_name", ""),
+        "user_name": st.session_state.get("user_name", "")
+    })
+
+
+def load_character_settings():
+    """从markdown文件加载角色设定"""
+    try:
+        with open('character_setting.md', 'r', encoding='utf-8') as f:
+            bot_info = f.read()
+        with open('user_setting.md', 'r', encoding='utf-8') as f:
+            user_info = f.read()
+        return bot_info, user_info
+    except Exception as e:
+        st.error(f"读取角色设定文件失败: {str(e)}")
+        return None, None
+
+
+def extract_name_from_setting(content: str) -> str:
+    """从人设内容中提取角色名"""
+    first_line = content.split('\n')[0]
+    return first_line.replace('# ', '').replace('人设', '')
+
+
 def update_api_key(key: Optional[str] = None):
     if debug:
         print(f'update_api_key. st.session_state["API_KEY"] = {st.session_state["API_KEY"]}, key = {key}')
@@ -43,7 +73,7 @@ api_key = st.sidebar.text_input("API_KEY", value=os.getenv("ZHIPUAI_API_KEY", ""
 update_api_key(api_key)
 
 
-# 初始化
+# 初始化session state
 if "history" not in st.session_state:
     st.session_state["history"] = []
 if "meta" not in st.session_state:
@@ -54,35 +84,51 @@ if "meta" not in st.session_state:
         "user_name": ""
     }
 
-
-def init_session():
-    st.session_state["history"] = []
-
-
-# 4个输入框，设置meta的4个字段
-meta_labels = {
-    "bot_name": "角色名",
-    "user_name": "用户名",
-    "bot_info": "角色人设",
-    "user_info": "用户人设"
-}
+# 加载角色设定
+bot_info, user_info = load_character_settings()
+bot_name = extract_name_from_setting(bot_info) if bot_info else ""
+user_name = extract_name_from_setting(user_info) if user_info else "用户"
 
 # 2x2 layout
 with st.container():
     col1, col2 = st.columns(2)
     with col1:
-        st.text_input(label="角色名", key="bot_name", on_change=lambda: st.session_state["meta"].update(bot_name=st.session_state["bot_name"]), help="模型所扮演的角色的名字，不可以为空")
-        st.text_area(label="角色人设", key="bot_info", on_change=lambda: st.session_state["meta"].update(bot_info=st.session_state["bot_info"]), help="角色的详细人设信息，不可以为空")
+        st.text_input(
+            label="角色名",
+            key="bot_name",
+            value=bot_name,
+            on_change=lambda: st.session_state["meta"].update(bot_name=st.session_state["bot_name"]),
+            help="模型所扮演角色的名字，不可以为空"
+        )
+        st.text_area(
+            label="角色人设",
+            key="bot_info",
+            value=bot_info or "",
+            on_change=lambda: st.session_state["meta"].update(bot_info=st.session_state["bot_info"]),
+            help="角色的详细人设信息，不可以为空"
+        )
 
     with col2:
-        st.text_input(label="用户名", value="用户", key="user_name", on_change=lambda: st.session_state["meta"].update(user_name=st.session_state["user_name"]), help="用户的名字，默认为用户")
-        st.text_area(label="用户人设", value="", key="user_info", on_change=lambda: st.session_state["meta"].update(user_info=st.session_state["user_info"]), help="用户的详细人设信息，可以为空")
+        st.text_input(
+            label="用户名",
+            key="user_name",
+            value=user_name,
+            on_change=lambda: st.session_state["meta"].update(user_name=st.session_state["user_name"]),
+            help="用户的名字，默认为用户"
+        )
+        st.text_area(
+            label="用户人设",
+            key="user_info",
+            value=user_info or "",
+            on_change=lambda: st.session_state["meta"].update(user_info=st.session_state["user_info"]),
+            help="用户的详细人设信息，可以为空"
+        )
 
 
 def verify_meta() -> bool:
     # 检查`角色名`和`角色人设`是否空，若为空，则弹出提醒
     if st.session_state["meta"]["bot_name"] == "" or st.session_state["meta"]["bot_info"] == "":
-        st.error("角色名和角色人设不能为空")
+        st.error("角色名和角色人设不能为")
         return False
     else:
         return True
@@ -135,6 +181,19 @@ def draw_new_image():
     st.rerun()
 
 
+def save_dialogue_history():
+    """保存对话记录到文件"""
+    try:
+        with open('dialogue_history.txt', 'w', encoding='utf-8') as f:
+            for msg in st.session_state["history"]:
+                if msg["role"] in ["user", "assistant"]:
+                    speaker = "唐僧" if msg["role"] == "user" else "孙悟空"
+                    f.write(f"{speaker}: {msg['content']}\n")
+        st.success("对话记录已保存到 dialogue_history.txt")
+    except Exception as e:
+        st.error(f"保存对话记录失败: {str(e)}")
+
+
 button_labels = {
     "clear_meta": "清空人设",
     "clear_history": "清空对话历史",
@@ -148,32 +207,6 @@ if debug:
         "show_meta": "查看meta",
         "show_history": "查看历史"
     })
-
-
-def load_character_settings():
-    """从markdown文件加载角色设定"""
-    try:
-        with open('character_setting.md', 'r', encoding='utf-8') as f:
-            bot_info = f.read()
-        with open('user_setting.md', 'r', encoding='utf-8') as f:
-            user_info = f.read()
-        return bot_info, user_info
-    except Exception as e:
-        st.error(f"读取角色设定文件失败: {str(e)}")
-        return None, None
-
-
-def save_dialogue_history():
-    """保存对话记录到文件"""
-    try:
-        with open('dialogue_history.txt', 'w', encoding='utf-8') as f:
-            for msg in st.session_state["history"]:
-                if msg["role"] in ["user", "assistant"]:
-                    speaker = "唐僧" if msg["role"] == "user" else "孙悟空"
-                    f.write(f"{speaker}: {msg['content']}\n")
-        st.success("对话记录已保存到 dialogue_history.txt")
-    except Exception as e:
-        st.error(f"保存对话记录失败: {str(e)}")
 
 
 # 在同一行排列按钮
@@ -223,32 +256,48 @@ with st.container():
         if start_dialogue:
             bot_info, user_info = load_character_settings()
             if bot_info and user_info:
+                # 更新meta信息
                 st.session_state["meta"].update({
-                    "bot_name": "孙悟空",
-                    "user_name": "唐僧",
+                    "bot_name": bot_name,  # 使用从文件中读取的名字
+                    "user_name": user_name,
                     "bot_info": bot_info,
                     "user_info": user_info
                 })
+
                 init_session()
                 # 生成10轮对话
-                for _ in range(10):
-                    if len(st.session_state["history"]) == 0:
-                        query = "悟空，我们又要经过一片妖怪出没的森林了，你要谨记佛祖教诲，不可轻易伤人。"
-                    else:
+                messages = []
+                query = "悟空，我们又要经过一片妖怪出没的森林了，你要谨记佛祖教诲，不可轻易伤人。"
+
+                # 生成所有对话
+                for i in range(10):
+                    print(f"\n=== 第{i+1}轮对话 ===")
+
+                    # 添加用户消息
+                    messages.append(TextMsg({"role": "user", "content": query}))
+                    print(f"用户: {query}")
+                    st.session_state["history"].extend([messages[-1]])  # 立即添加用户消息
+
+                    # 获取机器人回复
+                    response_stream = get_characterglm_response(
+                        filter_text_msg(messages),
+                        meta=st.session_state["meta"]
+                    )
+                    bot_response = "".join(response_stream)
+                    print(f"助手: {bot_response}")
+                    messages.append(TextMsg({"role": "assistant", "content": bot_response}))
+                    st.session_state["history"].extend([messages[-1]])  # 立即添加机器人回复
+
+                    # 获取下一轮用户提问（如果不是最后一轮）
+                    if i < 9:
                         response_stream = get_characterglm_response(
                             filter_text_msg(st.session_state["history"]),
                             meta=st.session_state["meta"]
                         )
                         query = "".join(response_stream)
-                    st.session_state["history"].append(TextMsg({"role": "user", "content": query}))
 
-                    response_stream = get_characterglm_response(
-                        filter_text_msg(st.session_state["history"]),
-                        meta=st.session_state["meta"]
-                    )
-                    bot_response = "".join(response_stream)
-                    st.session_state["history"].append(TextMsg({"role": "assistant", "content": bot_response}))
-                st.rerun()
+                    # 每轮对话后重新加载页面显示新消息
+                    st.rerun()
 
     with button_key_to_col["save_dialogue"]:
         save_dialogue = st.button(button_labels["save_dialogue"])
@@ -256,7 +305,7 @@ with st.container():
             save_dialogue_history()
 
 
-# 展示对话历史
+# 展示对话历
 for msg in st.session_state["history"]:
     if msg["role"] == "user":
         with st.chat_message(name="user", avatar="user"):
